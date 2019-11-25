@@ -36,11 +36,7 @@ namespace EQ.UI.Windows.Other
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            TB_UpdateInfo.Text = AUI.VerInfo;
-            TB_CurVersion.Text = Assembly.GetExecutingAssembly().GetName().Version.ToString();
-            TB_NewVersion.Text = AUI.NewVersion.ToString();
-            TB_UpdateTime.Text = AUI.VerUpdateTime.ToString("yyyy-MM-dd HH:mm:ss");
-            if (AUI.IsMajorVersion)
+            if (AUI.IsMajorVersion) //是否重大升级
             {
                 WebClient WC = new WebClient();
                 WC.DownloadProgressChanged += (s, DPCe) =>
@@ -70,7 +66,7 @@ namespace EQ.UI.Windows.Other
                     Close();
                 };
                 SetupFilePath = Environment.GetEnvironmentVariable("TEMP") + $"\\Elite_Setup{DateTime.Now.ToString("yyyyMMddHHmmssffffff")}.exe";
-                WC.DownloadFileAsync(new Uri(Global.CRMResServerHost + "DownloadFile/GetSetup/Setup.exe"), SetupFilePath);
+                WC.DownloadFileAsync(new Uri(Global.ServerHost + "xxx/xxx/Setup.exe"), SetupFilePath);
             }
             else
                 UpdateProess();
@@ -83,7 +79,7 @@ namespace EQ.UI.Windows.Other
             Task.Factory.StartNew(() =>
             {
                 WebClient WC = new WebClient();
-                string res = WC.DownloadString(Global.CRMCommFilesServerHost + "DownloadFile/GetUpdateFiles?FileName=UpdateFiles.chk");   //服务器的chk校验文件
+                string res = WC.DownloadString(Global.ServerHost + "xxx/xxx?FileName=UpdateFiles.chk");   //服务器的chk校验文件
                 WC.Dispose();
                 string ChkFile = AppDomain.CurrentDomain.BaseDirectory + "UpdateFiles.chk";
                 string[] str1 = File.ReadAllLines(ChkFile, Encoding.UTF8);   //本地校验文件
@@ -113,11 +109,12 @@ namespace EQ.UI.Windows.Other
             Dictionary<string, string> FileDIC1 = new Dictionary<string, string>();  //本地文件DIC
             Dictionary<string, string> FileDIC2 = new Dictionary<string, string>();  //远程文件DIC
             string[] CommFile = res.Split("\r\n".ToArray());
-            Dispatcher.Invoke(() =>
-            {
+       /*   Dispatcher.Invoke(() =>
+          {
                 TB_TextProgress.Text = $"检查升级深度...";
                 PB_Progress.Value = 5;
             });
+       */
             foreach (var item1 in str1)
             {
                 if (!FileDIC1.ContainsKey(item1.Split(',')[0]))
@@ -190,18 +187,19 @@ namespace EQ.UI.Windows.Other
             {
                 WebClient WC = new WebClient();
                 string[] PathInfo = item.Trim('\\').Split('\\');
-                Dispatcher.Invoke(() =>
+        /*        Dispatcher.Invoke(() =>
                 {
                     TB_TextProgress.Text = $"正在下载[{item}]...";
                     PB_Progress.Value += progressBuff / 2;
                 });
+        */
                 string OutPath = SetupFilePath;
                 if (PathInfo.Length > 1)
                 {
                     OutPath += string.Join("\\", PathInfo.Take(PathInfo.Length - 1)) + "\\";
                     Directory.CreateDirectory(OutPath);
                 }
-                WC.DownloadFile(new Uri(Global.CRMResServerHost + $"DownloadFile/GetUpdateFiles?FileName={item}"), OutPath + PathInfo[PathInfo.Length - 1]);  //下载需要更新的文件到指定路径
+                WC.DownloadFile(new Uri(Global.ServerHost + $"xxx/xxx?FileName={item}"), OutPath + PathInfo[PathInfo.Length - 1]);  //下载需要更新的文件到指定路径
             }
         }
         private void FileReplace(List<string> Path)
