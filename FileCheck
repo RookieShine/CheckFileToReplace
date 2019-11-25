@@ -1,0 +1,43 @@
+/// <summary>
+/// 旧文件删除
+/// </summary>
+public void ProcessingOldFile()
+{
+    string ChkFile = AppDomain.CurrentDomain.BaseDirectory + "UpdateFiles.chk";
+    if (File.Exists(ChkFile))
+    {
+        string[] str1 = File.ReadAllLines(ChkFile, Encoding.UTF8).Select(J => J.Split(',')[0]).ToArray();   //本地校验文件
+        foreach (var item in str1)
+        {
+            string OldFileName = Path.Combine(Path.GetDirectoryName(AppDomain.CurrentDomain.BaseDirectory + item), "old_update_" + Path.GetFileName(AppDomain.CurrentDomain.BaseDirectory + item));
+            if (File.Exists(OldFileName))
+                File.Delete(OldFileName);
+        }
+    }
+}
+/// <summary>
+/// 检查升级
+/// </summary>
+ private void CheckUpgrade()
+{
+    try
+    {
+        WebClient WC = new WebClient();
+        WC.Encoding = Encoding.UTF8;
+        var Res = WC.DownloadString(Global.CRMCommFilesServerHost + "DownloadFile/CheckVersion");
+        AppUpgradeInfo AUI = JsonConvert.DeserializeObject<AppUpgradeInfo>(Res);
+        if (Assembly.GetExecutingAssembly().GetName().Version < AUI.NewVersion)
+        {
+            AppUpgradeWindow AUW = new AppUpgradeWindow(AUI);
+            AUW.ShowActivated = true;
+            AUW.ShowDialog();
+            if (AUW.Shutdown)
+                Current.Shutdown();
+        }
+    }
+    catch (Exception e)
+    {
+        EQMessageBox.Show("程序即将关闭", "程序检查版本信息失败，请检查网络连接是否正常，为保证数据的正确性，您必须检测版本信息通过后方可继续使用，若多次出现此问题，请联系技术部门。\r\n以下是检测异常信息：\r\n" + e.Message);
+        Current.Shutdown(-1);
+    }
+}
