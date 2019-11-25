@@ -1,0 +1,242 @@
+using EQ.UI.Controls;
+using EQ.Utility;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
+using SystemHelper.Entity.InsidePart;
+using SystemHelper.Function;
+
+namespace EQ.UI.Windows.Other
+{
+    /// <summary>
+    /// AppUpgradeWindow.xaml 的交互逻辑
+    /// </summary>
+    public partial class AppUpgradeWindow : EQWindow
+    {
+        private AppUpgradeInfo AUI;      //软件版本信息
+        public bool Shutdown = false;
+        string AppPath = AppDomain.CurrentDomain.BaseDirectory;
+        double progressBuff = 0.0;
+        string ExeName = new FileInfo(Process.GetCurrentProcess().MainModule.FileName).Name.ToLower();
+        private string SetupFilePath = "";
+        /// <param name="AUI">升级信息</param>
+        public AppUpgradeWindow(AppUpgradeInfo AUI)
+        {
+            this.AUI = AUI;
+            InitializeComponent();
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            TB_UpdateInfo.Text = AUI.VerInfo;
+            TB_CurVersion.Text = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            TB_NewVersion.Text = AUI.NewVersion.ToString();
+            TB_UpdateTime.Text = AUI.VerUpdateTime.ToString("yyyy-MM-dd HH:mm:ss");
+            if (AUI.IsMajorVersion)
+            {
+                WebClient WC = new WebClient();
+                WC.DownloadProgressChanged += (s, DPCe) =>
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        TB_TextProgress.Text = $"安装包下载中，已完成 [ {DPCe.ProgressPercentage}% ]";
+                        PB_Progress.Value = DPCe.ProgressPercentage;
+                    });
+                };
+                WC.DownloadFileCompleted += (s, DFCe) =>
+                {
+                    if (DFCe.Error == null)
+                    {
+                        //创建启动对象 
+                        ProcessStartInfo startInfo = new ProcessStartInfo();
+                        //设置运行文件 
+                        startInfo.FileName = SetupFilePath;
+                        //设置启动动作,确保以管理员身份运行 
+                        startInfo.Verb = "runas";
+                        //如果不是管理员，则启动UAC 
+                        Process.Start(startInfo);
+                    }
+                    else
+                        Dispatcher.Invoke(() => { EQMessageBox.Show("升级失败", DFCe.Error.Message); });
+                    Shutdown = true;
+                    Close();
+                };
+                SetupFilePath = Environment.GetEnvironmentVariable("TEMP") + $"\\Elite_Setup{DateTime.Now.ToString("yyyyMMddHHmmssffffff")}.exe";
+                WC.DownloadFileAsync(new Uri(Global.CRMResServerHost + "DownloadFile/GetSetup/Setup.exe"), SetupFilePath);
+            }
+            else
+                UpdateProess();
+        }
+
+
+
+        public void UpdateProess()
+        {
+            Task.Factory.StartNew(() =>
+            {
+                WebClient WC = new WebClient();
+                string res = WC.DownloadString(Global.CRMCommFilesServerHost + "DownloadFile/GetUpdateFiles?FileName=UpdateFiles.chk");   //服务器的chk校验文件
+                WC.Dispose();
+                string ChkFile = AppDomain.CurrentDomain.BaseDirectory + "UpdateFiles.chk";
+                string[] str1 = File.ReadAllLines(ChkFile, Encoding.UTF8);   //本地校验文件
+
+                FileCompare(res, str1);
+                File.WriteAllText(ChkFile, res, Encoding.UTF8);
+                Dispatcher.Invoke(() =>
+                {
+                    TB_TextProgress.Text = $"升级完成";
+                    PB_Progress.Value += 5;
+                });
+                Thread.Sleep(500);
+
+
+            }).ContinueWith((t) =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    Process.Start(AppPath + ExeName);
+                    Process.GetCurrentProcess().Kill();
+                });
+            });
+        }
+
+        private void FileCompare(string res, string[] str1)
+        {
+            Dictionary<string, string> FileDIC1 = new Dictionary<string, string>();  //本地文件DIC
+            Dictionary<string, string> FileDIC2 = new Dictionary<string, string>();  //远程文件DIC
+            string[] CommFile = res.Split("\r\n".ToArray());
+            Dispatcher.Invoke(() =>
+            {
+                TB_TextProgress.Text = $"检查升级深度...";
+                PB_Progress.Value = 5;
+            });
+            foreach (var item1 in str1)
+            {
+                if (!FileDIC1.ContainsKey(item1.Split(',')[0]))
+                {
+                    if (item1 != null && item1.Split(',').Count() > 1)
+                        FileDIC1.Add(item1.Split(',')[0], item1.Split(',')[1]);
+                }
+            }
+            foreach (var item2 in CommFile)
+            {
+                if (!FileDIC2.ContainsKey(item2.Split(',')[0]))
+                {
+                    if (item2 != null && item2.Split(',').Count() > 1)
+                        FileDIC2.Add(item2.Split(',')[0], item2.Split(',')[1]);
+                }
+            }
+            List<string> buff = new List<string>();
+            //共同存在的文件
+            var interFile = FileDIC2.Keys.Intersect(FileDIC1.Keys);
+            //缺少的文件
+            var exc = FileDIC2.Keys.Except(FileDIC1.Keys);
+            //多出的文件
+            var surplus = FileDIC1.Keys.Except(FileDIC2.Keys);
+
+            if (interFile != null && interFile.Count() != 0)
+            {
+                foreach (var item in interFile)
+                {
+                    if (FileDIC1[item] == FileDIC2[item])
+                        continue;
+                    else
+                        buff.Add(item);   //收集文件名相同内容不同的文件
+                }
+            }
+            if (exc != null && exc.Count() != 0)
+            {
+                buff.AddRange(exc);       //收集缺少的文件
+            }
+
+            progressBuff = 90.0 / (exc.Count() + surplus.Count() + buff.Count);
+
+            if (surplus != null && surplus.Count() != 0)
+            {
+                foreach (var item3 in surplus)
+                {
+                    string x = (AppPath + item3); //删除多余的文件
+                    if (File.Exists(x))
+                    {
+                        FileInfo DeleteFile = new FileInfo(x);
+                        DeleteFile.IsReadOnly = false;
+                        DeleteFile.Delete();
+                    }
+                    Dispatcher.Invoke(() =>
+                    {
+                        TB_TextProgress.Text = $"删除中[{item3}]...";
+                        PB_Progress.Value += progressBuff;
+                    });
+                }
+            }
+            LoadFile(buff);
+            FileReplace(buff);
+        }
+
+        private void LoadFile(List<string> Path)
+        {
+            string SetupFilePath = AppDomain.CurrentDomain.BaseDirectory + "/UpdateFile/";
+            if (Directory.Exists(SetupFilePath) == false)
+                Directory.CreateDirectory(SetupFilePath);
+            foreach (var item in Path)
+            {
+                WebClient WC = new WebClient();
+                string[] PathInfo = item.Trim('\\').Split('\\');
+                Dispatcher.Invoke(() =>
+                {
+                    TB_TextProgress.Text = $"正在下载[{item}]...";
+                    PB_Progress.Value += progressBuff / 2;
+                });
+                string OutPath = SetupFilePath;
+                if (PathInfo.Length > 1)
+                {
+                    OutPath += string.Join("\\", PathInfo.Take(PathInfo.Length - 1)) + "\\";
+                    Directory.CreateDirectory(OutPath);
+                }
+                WC.DownloadFile(new Uri(Global.CRMResServerHost + $"DownloadFile/GetUpdateFiles?FileName={item}"), OutPath + PathInfo[PathInfo.Length - 1]);  //下载需要更新的文件到指定路径
+            }
+        }
+        private void FileReplace(List<string> Path)
+        {
+            string SetupFilePath = AppDomain.CurrentDomain.BaseDirectory + "/UpdateFile/";
+
+            foreach (var item in Path)
+            {
+                var TempFile = item.TrimStart('\\');
+                Dispatcher.Invoke(() =>
+                {
+                    TB_TextProgress.Text = $"正在复制[{item}]...";
+                    PB_Progress.Value += progressBuff / 2;
+                });
+                if (TempFile.ToLower() == ExeName)
+                {
+                    File.Move(AppPath + TempFile, AppPath + "old_update_" + TempFile);
+                    File.Copy(SetupFilePath + TempFile, AppPath + TempFile, true);
+                }
+                else
+                {
+                    try
+                    {
+                        File.Copy(SetupFilePath + TempFile, AppPath + TempFile, true);
+                    }
+                    catch (Exception)
+                    {
+                        File.Move(AppPath + TempFile, AppPath + "old_update_" + TempFile);
+                        File.Copy(SetupFilePath + TempFile, AppPath + TempFile, true);
+                        File.Delete(SetupFilePath + TempFile);
+                    }
+                }
+                File.Delete(SetupFilePath + TempFile);
+            }
+        }
+        
+    }
+}
